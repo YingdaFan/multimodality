@@ -1,0 +1,14 @@
+# Override DEFAULT_CONFIG for this run.
+# Switch backbone to Transformer (DiT-style).
+backbone: transformer
+ft_epochs: 30
+finetune_learning_rate: 1.0e-3
+weight_decay: 0.0
+grad_clip: 3.0
+shuffle: true
+lambda_ode_max: 1.0
+lambda_ode_ramp_frac: 0.2
+sample_steps: 50
+sample_method: vel
+n_samples_at_predict: 1
+sample_eval_every: 0

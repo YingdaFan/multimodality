@@ -1,0 +1,76 @@
+# Model outputs and results
+**/results/
+**/output/
+**/output_cal/
+**/output_fm/
+**/output_si/
+**/checkpoints/
+**/wandb/
+**/save/
+**/pred/
+**/preds/
+**/figure/
+**/figures/
+
+# Data files
+**/data/*.npz
+**/data/*.csv
+**/data/*.pkl
+*.ckpt
+*.pt
+*.pth
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# Log files
+*.log
+**/logs/
+
+*.csv
+
+# IDE and tools
+.vscode/
+.idea/
+.claude/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+
+# IDE history
+.history/
+
+# Images and binary documents
+*.png
+*.pdf
+*.tex
+nohup.out
+*.log2
+*.npz
+*.html
+*.zip
+
+# Paper submission and personal notes
+ICML/
+*.md
+!README.md
+!**/README.md
+!**/docs/*.md
+
+# Office documents
+*.pptx
+*.docx
+*.xlsx
+
+# Text files — ignore by default, but keep requirements + fold splits
+*.txt
+!**/requirements.txt
+!rgcn/folds/*.txt

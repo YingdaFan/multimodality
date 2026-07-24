@@ -1,0 +1,20 @@
+# 模型配置
+hidden_size: 20          # 从你提供的配置中获取
+dropout: 0.2
+seed: 42                 # 你的代码中使用了seed=42
+
+# 训练配置
+ft_epochs: 50           # fine-tune epochs
+pt_epochs: 50          # pre-train epochs（如果需要）
+early_stopping: 40     # 早停patience
+
+# 学习率
+pretrain_learning_rate: 0.005
+finetune_learning_rate: 0.005
+
+# 偏移量（如果需要）
+trn_offset: 1.0
+tst_val_offset: 1.0
+
+# 输出目录
+out_dir: "output"

@@ -1,0 +1,23 @@
+# Model configuration
+hidden_size: 20
+dropout: 0.2
+seed: 42
+
+# Training configuration
+ft_epochs: 50           # fine-tune epochs
+pt_epochs: 50          # pre-train epochs
+early_stopping: 40     # early stopping patience
+
+# Learning rates
+pretrain_learning_rate: 0.005
+finetune_learning_rate: 0.005
+
+# Regularization
+weight_decay: 0.0       # L2 regularization parameter for Adam optimizer
+
+# Offsets
+trn_offset: 1.0
+tst_val_offset: 1.0
+
+# Output directory
+out_dir: "output"
