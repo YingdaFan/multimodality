@@ -110,11 +110,8 @@ train_torch(model,
 
 # predict
 data = np.load(os.path.join(data_processing_dir, 'data', 'prepped.npz'), allow_pickle=True)
-in_dim = len(data['x_vars'])
-adj_mx = data['dist_matrix']
 device = torch.device(cuda_device if torch.cuda.is_available() else 'cpu')
-model = build_model()
-model.load_state_dict(torch.load(f"{outdir}/finetuned_weights.pth"))
+model = torch.load(f"{outdir}/finetuned_weights.pth", map_location=device, weights_only=False)
 partitions = ['trn','val','tst']
 
 

@@ -26,11 +26,12 @@ from torch_timeseries.utils.model_stats import count_parameters
 from torch_timeseries.utils.reproduce import reproducible
 import time
 
+# the prior checkpoint is a pickled whole model; unpickling imports its class
+# from the `model` module, so the stage-1 dir must be on sys.path
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(_SCRIPT_DIR))
-_LSTM_DIR = os.path.join(os.path.dirname(_PROJECT_ROOT), 'lstm')
-sys.path.insert(0, _LSTM_DIR)
-from model import LSTM
+_PRIOR_DIR = os.path.join(os.path.dirname(_PROJECT_ROOT), 'lstm')
+sys.path.insert(0, _PRIOR_DIR)
 
 from src.experiments.fmcal_gx_enc import (
     FMCalRaw, FMCalEarlyStopping, EPS
@@ -39,7 +40,7 @@ from src.experiments.prob_forecast import update_metrics
 
 
 class JointEarlyStopping(FMCalEarlyStopping):
-    """Early stopping that also saves LSTM weights."""
+    """Early stopping that also saves prior-model weights."""
 
     def save_checkpoint(self, val_loss, model):
         if self.verbose:
@@ -48,8 +49,8 @@ class JointEarlyStopping(FMCalEarlyStopping):
             )
         torch.save(model['model'].state_dict(), os.path.join(self.path, 'model.pth'))
         torch.save(model['cond_pred_model'].state_dict(), os.path.join(self.path, 'cond_pred_model.pth'))
-        if model.get('lstm_model') is not None:
-            torch.save(model['lstm_model'].state_dict(), os.path.join(self.path, 'lstm_model.pth'))
+        if model.get('prior_model') is not None:
+            torch.save(model['prior_model'].state_dict(), os.path.join(self.path, 'prior_model.pth'))
         self.val_loss_min = val_loss
 
 
@@ -59,46 +60,34 @@ class FMCalJoint(FMCalRaw):
 
     model_type: str = "flowmatching_gx_enc_joint"
 
-    lstm_weights_path: str = '../lstm/output/finetuned_weights.pth'
-    lstm_hidden_dim: int = 20
-    lstm_dropout: float = 0.2
-    lstm_lr: float = 1e-5
+    prior_weights_path: str = '../lstm/output/finetuned_weights.pth'
+    prior_lr: float = 1e-5
 
     def _init_model(self):
         super()._init_model()
 
+        loaded = torch.load(self.prior_weights_path, map_location=self.device, weights_only=False)
         n_x_features = self.dataset.num_features - 3
-        self.lstm_model = LSTM(
-            input_dim=n_x_features,
-            hidden_dim=self.lstm_hidden_dim,
-            dropout=self.lstm_dropout,
-            device=str(self.device),
-            seed=42
-        ).to(self.device)
+        if getattr(loaded, 'input_dim', n_x_features) != n_x_features:
+            raise ValueError(f"prior input_dim={loaded.input_dim} != dataset X width {n_x_features}")
+        self.prior_model = loaded.to(self.device)
 
-        if os.path.exists(self.lstm_weights_path):
-            state = torch.load(self.lstm_weights_path, map_location=self.device, weights_only=True)
-            self.lstm_model.load_state_dict(state)
-            print(f"[Joint-FM] Loaded pre-trained LSTM from {self.lstm_weights_path}")
-        else:
-            print(f"[Joint-FM] WARNING: LSTM weights not found at {self.lstm_weights_path}")
-
-        lstm_params = sum(p.numel() for p in self.lstm_model.parameters())
-        print(f"[Joint-FM] LSTM: input={n_x_features}, hidden={self.lstm_hidden_dim}, params={lstm_params}")
-        print(f"[Joint-FM] LR: fm={self.lr}, lstm={self.lstm_lr}")
+        prior_params = sum(p.numel() for p in self.prior_model.parameters())
+        print(f"[Joint-FM] prior: {type(loaded).__name__} from {self.prior_weights_path}, params={prior_params}")
+        print(f"[Joint-FM] LR: fm={self.lr}, prior={self.prior_lr}")
 
     def _init_optimizer(self):
         self.model_optim = torch.optim.Adam(
             [
                 {'params': self.model.parameters(), 'lr': self.lr},
                 {'params': self.cond_pred_model.parameters(), 'lr': self.lr},
-                {'params': self.lstm_model.parameters(), 'lr': self.lstm_lr},
+                {'params': self.prior_model.parameters(), 'lr': self.prior_lr},
             ],
             lr=self.lr,
         )
         self.grad_scaler = GradScaler('cuda')
 
-    def _replace_y_obs_with_lstm(self, batch_x):
+    def _replace_y_obs_with_prior(self, batch_x):
         """Replace static y_obs in batch_x with live LSTM forward pass.
 
         batch_x layout: [X(42), y_mean_vae(1), y_std_vae(1), y_obs(1)]
@@ -109,9 +98,9 @@ class FMCalJoint(FMCalRaw):
         y_mean_vae = batch_x[:, :, -3:-2]
         y_std_vae = batch_x[:, :, -2:-1]
 
-        lstm_out = self.lstm_model(x_features)
+        prior_out = self.prior_model(x_features)
 
-        y_denorm = lstm_out * (y_std_vae + 1e-10) + y_mean_vae
+        y_denorm = prior_out * (y_std_vae + 1e-10) + y_mean_vae
         y_obs_global = (y_denorm - self.y_global_mean) / (self.y_global_std + 1e-10)
 
         return torch.cat([x_features, y_mean_vae, y_std_vae, y_obs_global], dim=-1)
@@ -122,7 +111,7 @@ class FMCalJoint(FMCalRaw):
         residual estimate matches the actual training data distribution."""
         was_training = self.cond_pred_model.training
         self.cond_pred_model.eval()
-        self.lstm_model.eval()
+        self.prior_model.eval()
         residuals = []
         for i, batch in enumerate(self.train_loader):
             if i >= n_batches:
@@ -133,12 +122,12 @@ class FMCalJoint(FMCalRaw):
             batch_x_date_enc = batch_x_date_enc.to(self.device).float()
             batch_y_date_enc = batch_y_date_enc.to(self.device).float()
 
-            batch_x = self._replace_y_obs_with_lstm(batch_x)
+            batch_x = self._replace_y_obs_with_prior(batch_x)
 
             batch_y_mark_input = torch.concat(
                 [batch_x_date_enc[:, -self.label_len:, :], batch_y_date_enc], dim=1)
             dec_inp_pred = torch.zeros(
-                [batch_x.size(0), self.pred_len, self.dataset.num_features]
+                [batch_x.size(0), self.pred_len, self.condition_dim]
             ).to(self.device)
             dec_inp_label = batch_x[:, -self.label_len:, :]
             dec_inp = torch.cat([dec_inp_label, dec_inp_pred], dim=1)
@@ -169,7 +158,7 @@ class FMCalJoint(FMCalRaw):
 
         self.model.train()
         self.cond_pred_model.train()
-        self.lstm_model.train()
+        self.prior_model.train()
 
         with torch.enable_grad(), tqdm(total=len(self.train_loader.dataset)) as progress_bar:
             train_loss = []
@@ -185,7 +174,7 @@ class FMCalJoint(FMCalRaw):
                 is_masked = is_masked.to(self.device).squeeze(-1)
 
                 with autocast('cuda', dtype=torch.bfloat16):
-                    batch_x = self._replace_y_obs_with_lstm(batch_x)
+                    batch_x = self._replace_y_obs_with_prior(batch_x)
                     loss = self._process_train_batch(
                         batch_x, batch_y, batch_x_date_enc, batch_y_date_enc, is_masked
                     )
@@ -201,7 +190,7 @@ class FMCalJoint(FMCalRaw):
                 progress_bar.set_postfix(
                     loss=loss.item(),
                     fm_lr=self.model_optim.param_groups[0]["lr"],
-                    lstm_lr=self.model_optim.param_groups[2]["lr"],
+                    prior_lr=self.model_optim.param_groups[2]["lr"],
                     epoch=self.current_epoch,
                     sigma_src=f"{self.fm_source_sigma:.3f}",
                     refresh=True,
@@ -212,13 +201,13 @@ class FMCalJoint(FMCalRaw):
 
         self.model.eval()
         self.cond_pred_model.eval()
-        self.lstm_model.eval()
+        self.prior_model.eval()
         return train_loss
 
     def _predict(self, loader, desc="Predicting"):
         self.model.eval()
         self.cond_pred_model.eval()
-        self.lstm_model.eval()
+        self.prior_model.eval()
 
         all_preds = []
         all_truths = []
@@ -232,7 +221,7 @@ class FMCalJoint(FMCalRaw):
                 batch_x_date_enc = batch_x_date_enc.to(self.device).float()
                 batch_y_date_enc = batch_y_date_enc.to(self.device).float()
 
-                batch_x = self._replace_y_obs_with_lstm(batch_x)
+                batch_x = self._replace_y_obs_with_prior(batch_x)
 
                 preds, truths = self._process_val_batch(
                     batch_x, batch_y, batch_x_date_enc, batch_y_date_enc
@@ -265,7 +254,7 @@ class FMCalJoint(FMCalRaw):
         self.best_checkpoint_filepath = os.path.join(self.run_save_dir, "model.pth")
         self.best_cond_checkpoint_filepath = os.path.join(self.run_save_dir, "cond_pred_model.pth")
         self.best_cond_g_checkpoint_filepath = os.path.join(self.run_save_dir, "cond_pred_model_g.pth")
-        self.best_lstm_checkpoint_filepath = os.path.join(self.run_save_dir, "lstm_model.pth")
+        self.best_prior_checkpoint_filepath = os.path.join(self.run_save_dir, "prior_model.pth")
         self.early_stopper = JointEarlyStopping(self.patience, verbose=True, path=self.run_save_dir)
 
     def _save_run_check_point(self, seed):
@@ -276,7 +265,7 @@ class FMCalJoint(FMCalRaw):
         self.run_state = {
             "model": self.model.state_dict(),
             "cond_pred_model": self.cond_pred_model.state_dict(),
-            "lstm_model": self.lstm_model.state_dict(),
+            "prior_model": self.prior_model.state_dict(),
             "current_epoch": self.current_epoch,
             "optimizer": self.model_optim.state_dict(),
             "rng_state": torch.get_rng_state(),
@@ -292,15 +281,15 @@ class FMCalJoint(FMCalRaw):
     def _load_best_model(self):
         self.model.load_state_dict(torch.load(self.best_checkpoint_filepath, map_location=self.device))
         self.cond_pred_model.load_state_dict(torch.load(self.best_cond_checkpoint_filepath, map_location=self.device))
-        if os.path.exists(self.best_lstm_checkpoint_filepath):
-            self.lstm_model.load_state_dict(torch.load(self.best_lstm_checkpoint_filepath, map_location=self.device))
+        if os.path.exists(self.best_prior_checkpoint_filepath):
+            self.prior_model.load_state_dict(torch.load(self.best_prior_checkpoint_filepath, map_location=self.device))
 
     def _resume_run(self, seed):
         check_point = torch.load(self.run_checkpoint_filepath, map_location=self.device)
         self.model.load_state_dict(check_point["model"])
         self.cond_pred_model.load_state_dict(check_point["cond_pred_model"])
-        if "lstm_model" in check_point:
-            self.lstm_model.load_state_dict(check_point["lstm_model"])
+        if "prior_model" in check_point:
+            self.prior_model.load_state_dict(check_point["prior_model"])
         self.model_optim.load_state_dict(check_point["optimizer"])
         self.current_epoch = check_point["current_epoch"]
         self.early_stopper.set_state(check_point["early_stopping"])
@@ -318,8 +307,8 @@ class FMCalJoint(FMCalRaw):
         parameter_tables, model_parameters_num = count_parameters(self.model)
         self._run_print(f"parameter_tables: {parameter_tables}")
         self._run_print(f"fm parameters: {model_parameters_num}")
-        lstm_params = sum(p.numel() for p in self.lstm_model.parameters())
-        self._run_print(f"lstm parameters: {lstm_params}")
+        prior_params = sum(p.numel() for p in self.prior_model.parameters())
+        self._run_print(f"prior parameters: {prior_params}")
 
         while self.current_epoch < self.epochs:
             epoch_start_time = time.time()
@@ -345,7 +334,7 @@ class FMCalJoint(FMCalRaw):
                     'model': self.model,
                     'cond_pred_model': self.cond_pred_model,
                     'cond_pred_model_g': self.cond_pred_model_g,
-                    'lstm_model': self.lstm_model,
+                    'prior_model': self.prior_model,
                 },
             )
             self._save_run_check_point(seed)

@@ -13,8 +13,7 @@ if [ $# -lt 2 ]; then
     echo "Uses fmcal_gx_enc_joint.py; outputs to output_fm/."
     echo ""
     echo "Env vars:"
-    echo "  LSTM_WEIGHTS_PATH  - path to pre-trained LSTM weights (default: ../lstm/output/finetuned_weights.pth)"
-    echo "  LSTM_HIDDEN_DIM    - LSTM hidden dim (default: 20)"
+    echo "  LSTM_WEIGHTS_PATH  - path to pre-trained prior (stage-1) weights (default: ../lstm/output/finetuned_weights.pth)"
     echo "  LSTM_LR            - LSTM learning rate (default: 1e-5)"
     echo "  DIFFUSION_PRED_LEN - prediction length (default: 365)"
     echo "  DIFFUSION_WINDOWS  - window length (default: 365)"
@@ -43,7 +42,6 @@ cd "$PROJECT_DIR"
 export PYTHONPATH=./
 
 LSTM_WEIGHTS=${LSTM_WEIGHTS_PATH:-"../lstm/output/finetuned_weights.pth"}
-LSTM_HIDDEN=${LSTM_HIDDEN_DIM:-20}
 LSTM_LEARNING_RATE=${LSTM_LR:-1e-5}
 
 echo "======================================"
@@ -59,7 +57,6 @@ echo "Output dir: $PROJECT_DIR/output_fm/"
 echo ""
 echo "LSTM config:"
 echo "  Weights: $LSTM_WEIGHTS"
-echo "  Hidden dim: $LSTM_HIDDEN"
 echo "  Learning rate: $LSTM_LEARNING_RATE"
 echo ""
 echo "FM config:"
@@ -114,9 +111,8 @@ python3 "$PYTHON_SCRIPT" \
     --patience=100 \
     --lr=0.001 \
     --fusion_type="$FUSION_TYPE" \
-    --lstm_weights_path="$LSTM_WEIGHTS" \
-    --lstm_hidden_dim=$LSTM_HIDDEN \
-    --lstm_lr=$LSTM_LEARNING_RATE \
+    --prior_weights_path="$LSTM_WEIGHTS" \
+    --prior_lr=$LSTM_LEARNING_RATE \
     --fm_source_sigma=${FM_SOURCE_SIGMA:--1} \
     --fm_steps=${FM_STEPS:-20} \
     --masked_basin_ids ${TARGET_BASINS[@]} \

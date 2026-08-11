@@ -235,6 +235,14 @@ class DiffCalRaw(ProbForecastExp, DiffCalRawParameters):
         )
         self.balance_weighter.initialize_from_dataset(self.dataset, masked_basins_list)
 
+
+    @property
+    def condition_dim(self):
+        """Width of the condition tensor fed to the diffusion models.
+        Defaults to the dataset's feature count; a subclass that widens the
+        condition (e.g. with live embeddings) overrides this one property
+        instead of mutating dataset.num_features."""
+        return self.dataset.num_features
     def _init_model(self):
         self.label_len = self.windows // 2
         args_dict = {
@@ -245,8 +253,8 @@ class DiffCalRaw(ProbForecastExp, DiffCalRawParameters):
             "features": 'MS',
             "beta_start": self.beta_start,
             "beta_end": self.beta_end,
-            "enc_in": self.dataset.num_features,
-            "dec_in": self.dataset.num_features,
+            "enc_in": self.condition_dim,
+            "dec_in": self.condition_dim,
             "c_out": 1,
             "d_model": self.d_model,
             "n_heads": self.n_heads,
@@ -389,7 +397,7 @@ class DiffCalRaw(ProbForecastExp, DiffCalRawParameters):
 
         batch_y_mark_input = torch.concat([batch_x_mark[:, -self.label_len:, :], batch_y_mark], dim=1)
 
-        dec_inp_pred = torch.zeros([batch_x.size(0), self.pred_len, self.dataset.num_features]).to(self.device)
+        dec_inp_pred = torch.zeros([batch_x.size(0), self.pred_len, self.condition_dim]).to(self.device)
         dec_inp_label = batch_x[:, -self.label_len:, :].to(self.device)
         dec_inp = torch.cat([dec_inp_label, dec_inp_pred], dim=1)
 
@@ -465,7 +473,7 @@ class DiffCalRaw(ProbForecastExp, DiffCalRawParameters):
 
         batch_y_mark_input = torch.concat([batch_x_mark[:, -self.label_len:, :], batch_y_mark], dim=1)
 
-        dec_inp_pred = torch.zeros([batch_x.size(0), self.pred_len, self.dataset.num_features]).to(self.device)
+        dec_inp_pred = torch.zeros([batch_x.size(0), self.pred_len, self.condition_dim]).to(self.device)
         dec_inp_label = batch_x[:, -self.label_len:, :].to(self.device)
         dec_inp = torch.cat([dec_inp_label, dec_inp_pred], dim=1)
 

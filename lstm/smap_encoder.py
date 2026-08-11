@@ -68,6 +68,8 @@ class LSTMWithSMAP(nn.Module):
     def __init__(self, input_dim, hidden_dim, d_smap=32, adj_matrix=None,
                  recur_dropout=0, dropout=0, device='cpu', seed=None):
         super().__init__()
+        self.input_dim = input_dim   # X width, without the embedding
+        self.d_smap = d_smap
         self.smap_encoder = SMAPEncoder(d_model=d_smap)
         self.lstm = LSTM(input_dim=input_dim + d_smap, hidden_dim=hidden_dim,
                          adj_matrix=adj_matrix, recur_dropout=recur_dropout,

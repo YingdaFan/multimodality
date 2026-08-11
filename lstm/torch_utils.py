@@ -194,7 +194,7 @@ def train_torch(model,
 
 
             if epoch_val_loss < best_loss:
-                torch.save(model.state_dict(), weights_file)
+                torch.save(model, weights_file)  # whole model (architecture + weights), not just state_dict
                 best_loss = epoch_val_loss
                 epochs_since_best = 0
             else:
@@ -214,7 +214,7 @@ def train_torch(model,
 
     train_log.to_csv(log_file)
     if x_val is None:
-        torch.save(model.state_dict(), weights_file)
+        torch.save(model, weights_file)  # whole model (architecture + weights), not just state_dict
         print("Average Training Time: {:.4f} secs/epoch".format(np.mean(train_time)))
     else:
         print("Average Training Time: {:.4f} secs/epoch".format(np.mean(train_time)))
