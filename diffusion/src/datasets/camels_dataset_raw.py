@@ -18,6 +18,7 @@ Rationale:
 - All basins have predictions for evaluation
 """
 
+import os
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -276,7 +277,7 @@ class CAMELSNpzDatasetRaw(Dataset):
         # Get is_masked flag for this sample
         is_masked = self.is_masked[seq_idx]
 
-        return (
+        out = (
             torch.FloatTensor(batch_x_scaled),
             torch.FloatTensor(batch_y_scaled),
             torch.FloatTensor(origin_x),
@@ -285,6 +286,9 @@ class CAMELSNpzDatasetRaw(Dataset):
             torch.FloatTensor(batch_y_date_enc),
             torch.BoolTensor([is_masked]),  # Shape: (1,) for easy batch stacking
         )
+        if os.environ.get('JOINT_SMAP') == '1':
+            return out + (seq_idx,)   # sample index, for the SMAP provider
+        return out
 
     def get_global_stats(self):
         """Return global Y statistics for denormalization"""

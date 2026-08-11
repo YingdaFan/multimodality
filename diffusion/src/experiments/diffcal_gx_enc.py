@@ -191,6 +191,15 @@ class DiffCalRaw(ProbForecastExp, DiffCalRawParameters):
         self.y_global_mean = self.dataset.y_global_mean
         self.y_global_std = self.dataset.y_global_std
 
+
+    @property
+    def condition_dim(self):
+        """Width of the condition tensor fed to the diffusion models.
+        Defaults to the dataset's feature count; a subclass that widens the
+        condition (e.g. with live embeddings) overrides this one property
+        instead of mutating dataset.num_features."""
+        return self.dataset.num_features
+
     def _init_data_loader(self, shuffle=False, fast_test=True, fast_val=True):
         self._init_dataset()
 
@@ -235,14 +244,6 @@ class DiffCalRaw(ProbForecastExp, DiffCalRawParameters):
         )
         self.balance_weighter.initialize_from_dataset(self.dataset, masked_basins_list)
 
-
-    @property
-    def condition_dim(self):
-        """Width of the condition tensor fed to the diffusion models.
-        Defaults to the dataset's feature count; a subclass that widens the
-        condition (e.g. with live embeddings) overrides this one property
-        instead of mutating dataset.num_features."""
-        return self.dataset.num_features
     def _init_model(self):
         self.label_len = self.windows // 2
         args_dict = {

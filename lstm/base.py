@@ -76,7 +76,13 @@ if use_smap:
     smap_provider = SMAPProvider(os.path.join(data_processing_dir, 'data', 'smap_packed.npz'))
     for split in ['trn', 'val', 'tst']:
         smap_provider.register_split(split, data[f'ids_{split}'], data[f'times_{split}'])
-    print(f"[INFO] SMAP modality ON (d_smap={config.get('d_smap', 32)})")
+    if (os.environ.get('SMAP_ENC_ATTRS') == '1'
+            or 'static_attrs' in os.environ.get('SMAP_QUERY_CTX', '')):
+        smap_provider.set_static_attrs(data['basin_names'], data['static_enc'])
+        print('[INFO] basin attrs registered for the SMAP encoder (16 attrs)')
+    print(f"[INFO] SMAP modality ON (d_smap={config.get('d_smap', 32)}, "
+          f"readout={os.environ.get('SMAP_READOUT', 'mean')}, "
+          f"query_ctx={os.environ.get('SMAP_QUERY_CTX', '') or '-'})")
 
 def build_model():
     if use_smap:

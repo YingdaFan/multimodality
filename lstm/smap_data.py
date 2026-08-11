@@ -13,6 +13,36 @@ import pandas as pd
 import torch
 
 
+def normalize_sm(sm_raw, mean, std):
+    """Single owner of the pixel-value normalization rule. Used by the
+    training-time provider and by offline embedding computation alike."""
+    return (sm_raw - mean) / std
+
+
+@torch.no_grad()
+def compute_basin_embeddings(encoder, packed_path, basins, attrs=None, device='cpu'):
+    """Run a trained SMAPEncoder over each basin's full daily axis.
+
+    encoder : SMAPEncoder in eval mode (weights already loaded)
+    basins  : iterable of basin ids (str)
+    attrs   : optional dict basin -> (K,) tensor, for attribute-conditioned
+              encoders; None for the unconditioned encoder
+    Returns : (emb, times) — emb: dict basin -> (n_days, d) float32 array
+    """
+    packed = np.load(packed_path, allow_pickle=True)
+    mean, std = packed['sm_mean'], packed['sm_std']
+    emb = {}
+    for k, b in enumerate(sorted(basins)):
+        sm = torch.from_numpy(normalize_sm(packed[f'sm_{b}'], mean, std))                   .transpose(0, 1).to(device)
+        xy = torch.from_numpy(packed[f'xy_{b}']).to(device)
+        seg = torch.zeros(sm.shape[0], dtype=torch.long, device=device)
+        at = attrs[b][None].to(device) if attrs is not None else None
+        emb[b] = encoder(sm, xy, seg, n_samples=1, attrs=at)[0].cpu().numpy()
+        if (k + 1) % 100 == 0:
+            print(f'  embeddings {k + 1}/{len(basins)}')
+    return emb, packed['times']
+
+
 class SMAPProvider:
     def __init__(self, npz_path):
         d = np.load(npz_path, allow_pickle=True)
@@ -22,10 +52,16 @@ class SMAPProvider:
         self.xy = {}
         for b in d['basin_names']:
             b = str(b)
-            self.sm[b] = torch.from_numpy((d[f'sm_{b}'] - mean) / std)
+            self.sm[b] = torch.from_numpy(normalize_sm(d[f'sm_{b}'], mean, std))
             self.xy[b] = torch.from_numpy(d[f'xy_{b}'])
         self.times = pd.to_datetime(d['times']).values
         self.splits = {}
+        self.attrs = None   # (basin -> (K,) tensor), set via set_static_attrs
+
+    def set_static_attrs(self, basin_names, static_enc):
+        """Register per-basin encoder attributes from prepped.npz."""
+        self.attrs = {str(b): torch.from_numpy(np.asarray(static_enc[i], dtype='float32'))
+                      for i, b in enumerate(basin_names)}
 
     def register_split(self, name, ids, times):
         """ids/times: (n_samples, seq_len, 1) arrays from prepped.npz."""
@@ -58,4 +94,8 @@ class SMAPProvider:
         sm = torch.cat(sm_parts)
         xy = torch.cat(xy_parts)
         seg = torch.cat(seg_parts)
-        return sm.to(device), xy.to(device), seg.to(device)
+        out = [sm.to(device), xy.to(device), seg.to(device)]
+        if self.attrs is not None:
+            at = torch.stack([self.attrs[basins[i]] for i in idx])
+            out.append(at.to(device))
+        return tuple(out)
