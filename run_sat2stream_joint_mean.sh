@@ -6,4 +6,4 @@ cd "$(dirname "$0")"
 export USE_SMAP=1
 export SMAP_READOUT=mean
 export SMAP_QUERY_CTX=
-bash run_sat2stream.sh
+bash run_sat2stream_joint.sh

@@ -14,4 +14,4 @@ cd "$(dirname "$0")"
 export USE_SMAP=1
 export SMAP_READOUT=attn
 export SMAP_QUERY_CTX=${SMAP_QUERY_CTX:-grid_size,pixel_mean}
-bash run_sat2stream.sh
+bash run_sat2stream_joint.sh
